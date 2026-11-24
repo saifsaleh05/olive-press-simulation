@@ -87,9 +87,46 @@ static void sleep_ms(int ms)
     nanosleep(&ts, NULL);           /* a signal may cut it short: fine */
 }
 
+static unsigned int mix32(unsigned int x)
+{
+    x += 0x9E3779B9u;
+    x = (x ^ (x >> 16)) * 0x85EBCA6Bu;
+    x = (x ^ (x >> 13)) * 0xC2B2AE35u;
+    return x ^ (x >> 16);
+}
+
+double simulation_random_unit(unsigned int seed, unsigned int stream,
+                              unsigned int sample)
+{
+    unsigned int x = mix32(seed ^ mix32(stream) ^ mix32(sample));
+
+    return (double)x / 4294967296.0;
+}
+
 double machine_random(Machine *m)
 {
-    return (double)rand_r(&m->rng) / ((double)RAND_MAX + 1.0);
+    /* xorshift32: a small, fully specified generator for repeatable readings. */
+    unsigned int x = m->rng;
+
+    x ^= x << 13;
+    x ^= x >> 17;
+    x ^= x << 5;
+    m->rng = x;
+    return (double)x / 4294967296.0;
+}
+
+double machine_processing_time(const Config *cfg, int machine,
+                               double batch_mass)
+{
+    double load;
+
+    if (!cfg || machine < 0 || machine >= NUM_MACHINES ||
+        cfg->nominal_batch_kg <= 0.0)
+        return 0.0;
+    load = batch_mass / cfg->nominal_batch_kg;
+    if (load < 0.1)
+        load = 0.1;
+    return cfg->machine[machine].base_time * load;
 }
 
 void machine_init(Machine *m, int id, const Config *cfg, int telem_fd)
@@ -105,8 +142,10 @@ void machine_init(Machine *m, int id, const Config *cfg, int telem_fd)
     m->pressure    = 0.0;
     m->batch_id    = -1;
     m->fail_at     = -1.0;
-    /* own deterministic stream per process: RANDOM_SEED mixed with the id */
-    m->rng         = cfg->seed ^ (0x9E3779B9u * (unsigned int)(id + 1));
+    /* Own deterministic stream per process; never allow xorshift's zero state. */
+    m->rng         = mix32(cfg->seed ^ (unsigned int)(id + 1));
+    if (m->rng == 0)
+        m->rng = 0xA341316Cu;
 }
 
 void machine_emit(Machine *m, int event)
@@ -174,7 +213,7 @@ static void start_batch(Machine *m, const Batch *b)
 
     m->batch_id    = b->id;
     m->load        = b->current_mass / cfg->nominal_batch_kg;
-    m->needed_time = m->mc->base_time * (m->load > 0.1 ? m->load : 0.1);
+    m->needed_time = machine_processing_time(cfg, m->id, b->current_mass);
     m->batch_time  = 0.0;
     m->progress    = 0.0;
     m->fail_at     = -1.0;

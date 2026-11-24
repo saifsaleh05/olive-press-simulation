@@ -20,10 +20,12 @@ obj = $(patsubst %.c,build/%.o,$(1))
 
 # objects the module tests link against (no OpenGL needed)
 TEST_DEPS := $(call obj,$(COMMON_SRC) processes/malaxation.c \
-                        processes/separation.c processes/quality_control.c)
+                        processes/separation.c processes/quality_control.c \
+                        processes/washing.c processes/crushing.c)
 
 TESTS := build/test_separation_mass build/test_quality_control \
-         build/test_malax_sep
+         build/test_malax_sep build/test_config_simulation \
+         build/test_wash_crush
 
 ALL := $(if $(wildcard main.c),olive_press) $(TESTS)
 
@@ -46,6 +48,8 @@ test: tests
 	./build/test_separation_mass config.txt
 	./build/test_quality_control config.txt
 	./build/test_malax_sep config.txt
+	./build/test_config_simulation config.txt
+	./build/test_wash_crush config.txt
 
 clean:
 	rm -rf build olive_press

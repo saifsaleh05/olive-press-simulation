@@ -70,8 +70,21 @@ void   machine_emit(Machine *m, int event);
 /* One model step of dt seconds; only ST_OPERATING heats / pressurises. */
 void   machine_physics_step(Machine *m, double dt);
 
-/* Uniform random number in [0,1) from the machine's own stream. */
+/* Uniform random number in [0,1) from the machine's own deterministic stream.
+ * The implementation is project-owned, so results do not depend on libc's
+ * rand()/rand_r() implementation. */
 double machine_random(Machine *m);
+
+/* Stateless deterministic sample. Separate stream numbers keep unrelated
+ * consumers independent; sample numbers make a batch value independent of
+ * scheduling and telemetry frequency. */
+double simulation_random_unit(unsigned int seed, unsigned int stream,
+                              unsigned int sample);
+
+/* Weight-dependent duration shared by all stages. A tiny positive batch is
+ * treated as 10% nominal load so processing never completes instantly. */
+double machine_processing_time(const Config *cfg, int machine,
+                               double batch_mass);
 
 int    machine_stop_requested(void);
 
