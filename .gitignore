@@ -1,0 +1,5 @@
+olive_press
+test_ipc
+test_reception_cleaning
+*.o
+*.dSYM/
