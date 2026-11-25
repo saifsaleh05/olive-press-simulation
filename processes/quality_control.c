@@ -135,17 +135,17 @@ static void qc_on_stop(int sig)
 
 static void qc_signals(void)
 {
-    struct sigaction sa;
-
-    memset(&sa, 0, sizeof sa);
-    sa.sa_handler = qc_on_stop;
-    sigemptyset(&sa.sa_mask);
-    sigaction(SIGTERM, &sa, NULL);
-    sigaction(SIGINT, &sa, NULL);
+    if (signal(SIGTERM, qc_on_stop) == SIG_ERR)
+        perror("qc: signal SIGTERM");
+    if (signal(SIGINT, qc_on_stop) == SIG_ERR)
+        perror("qc: signal SIGINT");
     /* QC is not a machine: pause/resume/injections do not apply to it. */
-    signal(SIG_PAUSE, SIG_IGN);
-    signal(SIG_RESUME, SIG_IGN);
-    signal(SIGPIPE, SIG_IGN);
+    if (signal(SIG_PAUSE, SIG_IGN) == SIG_ERR)
+        perror("qc: signal SIG_PAUSE");
+    if (signal(SIG_RESUME, SIG_IGN) == SIG_ERR)
+        perror("qc: signal SIG_RESUME");
+    if (signal(SIGPIPE, SIG_IGN) == SIG_ERR)
+        perror("qc: signal SIGPIPE");
 }
 
 static void log_alarm(const Alarm *a)

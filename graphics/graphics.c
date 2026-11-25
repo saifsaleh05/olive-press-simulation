@@ -1,7 +1,12 @@
+#ifdef __APPLE__
+#include <GLUT/glut.h>
+#else
 #include <GL/freeglut.h>
+#endif
 #include <math.h>
 #include <stdarg.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #ifndef M_PI
@@ -125,7 +130,12 @@ static void circle(float cx, float cy, float r)
 static void text(float x, float y, void *font, const char *s)
 {
     glRasterPos2f(x, y);
+#ifdef __APPLE__
+    while (*s)
+        glutBitmapCharacter(font, (unsigned char)*s++);
+#else
     glutBitmapString(font, (const unsigned char *)s);
+#endif
 }
 
 static int text_width(void *font, const char *s)
@@ -505,7 +515,12 @@ static void display(void)
 
 static void quit(void)
 {
+#ifdef __APPLE__
+    supervisor_shutdown();
+    exit(0);
+#else
     glutLeaveMainLoop();
+#endif
 }
 
 static void do_action(char key)
@@ -600,7 +615,9 @@ int graphics_run(int *argc, char **argv, const Config *config, int autostart)
     cfg = config;
 
     glutInit(argc, argv);
+#ifndef __APPLE__
     glutSetOption(GLUT_ACTION_ON_WINDOW_CLOSE, GLUT_ACTION_GLUTMAINLOOP_RETURNS);
+#endif
     glutInitDisplayMode(GLUT_DOUBLE | GLUT_RGB | GLUT_MULTISAMPLE);
     glutInitWindowSize(win_w, win_h);
     glutCreateWindow("Olive Press Supervisor");

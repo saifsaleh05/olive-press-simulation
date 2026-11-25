@@ -96,8 +96,6 @@ static void signal_process(int id, int signal_number)
 
 int supervisor_init(const Config *cfg)
 {
-    struct sigaction action;
-
     memset(&sv.s, 0, sizeof sv.s);
     sv.cfg = cfg;
     sv.operator_paused = 0;
@@ -112,9 +110,10 @@ int supervisor_init(const Config *cfg)
     }
     sv.s.line = LINE_READY;
 
-    memset(&action, 0, sizeof action);
-    action.sa_handler = SIG_IGN;
-    sigaction(SIGPIPE, &action, NULL);
+    if (signal(SIGPIPE, SIG_IGN) == SIG_ERR) {
+        perror("signal SIGPIPE");
+        return -1;
+    }
     return 0;
 }
 

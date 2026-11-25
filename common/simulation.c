@@ -32,13 +32,8 @@ static void on_stop(int sig)     { (void)sig; g_stop = 1; }
 
 static void set_handler(int sig, void (*fn)(int))
 {
-    struct sigaction sa;
-
-    memset(&sa, 0, sizeof sa);
-    sa.sa_handler = fn;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = SA_RESTART;
-    sigaction(sig, &sa, NULL);
+    if (signal(sig, fn) == SIG_ERR)
+        fprintf(stderr, "signal %d: %s\n", sig, strerror(errno));
 }
 
 void machine_install_signals(void)
@@ -51,7 +46,7 @@ void machine_install_signals(void)
     set_handler(SIG_PRESSURE, on_pressure);
     set_handler(SIGTERM, on_stop);
     set_handler(SIGINT, on_stop);
-    signal(SIGPIPE, SIG_IGN);       /* broken pipe -> write() returns EPIPE */
+    set_handler(SIGPIPE, SIG_IGN);  /* broken pipe -> write() returns EPIPE */
 }
 
 int machine_stop_requested(void)

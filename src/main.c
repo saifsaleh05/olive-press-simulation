@@ -29,15 +29,17 @@ static void on_stop_signal(int sig)
     supervisor_request_stop();
 }
 
-static void install_parent_signals(void)
+static int install_parent_signals(void)
 {
-    struct sigaction sa;
-
-    memset(&sa, 0, sizeof sa);
-    sa.sa_handler = on_stop_signal;
-    sigemptyset(&sa.sa_mask);
-    sigaction(SIGINT, &sa, NULL);
-    sigaction(SIGTERM, &sa, NULL);
+    if (signal(SIGINT, on_stop_signal) == SIG_ERR) {
+        perror("signal SIGINT");
+        return -1;
+    }
+    if (signal(SIGTERM, on_stop_signal) == SIG_ERR) {
+        perror("signal SIGTERM");
+        return -1;
+    }
+    return 0;
 }
 
 static void headless_command(char *line)
@@ -132,6 +134,11 @@ int main(int argc, char **argv)
             usage(argv[0]);
             return 1;
         } else {
+            if (cfg_path) {
+                fprintf(stderr, "only one config file may be supplied\n");
+                usage(argv[0]);
+                return 1;
+            }
             cfg_path = argv[i];
         }
     }
@@ -142,8 +149,10 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    supervisor_init(&cfg);
-    install_parent_signals();
+    if (supervisor_init(&cfg) < 0)
+        return 1;
+    if (install_parent_signals() < 0)
+        return 1;
 
     if (headless)
         return run_headless(&cfg);

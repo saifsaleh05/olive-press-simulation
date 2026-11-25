@@ -10,14 +10,14 @@ CFLAGS ?= $(OPT) -g
 ALL_CFLAGS = $(CSTD) $(WARN) $(CPPFLAGS) $(CFLAGS)
 LDLIBS := -lm
 
-# Linux is the assignment target and builds the real OpenGL GUI and OpenMP
-# benchmark. macOS development builds use a GUI stub because FreeGLUT and GCC
-# OpenMP are not system components there; all headless logic and tests still run.
+# Linux is the assignment target and builds FreeGLUT plus OpenMP. macOS uses
+# its native GLUT/OpenGL frameworks for the same GUI; OpenMP still requires GCC.
 ifeq ($(UNAME_S),Darwin)
-GRAPH_SRC := graphics/graphics_stub.c
+GRAPH_SRC := graphics/graphics.c
 OPENMP_FLAGS :=
 BENCH_TARGET :=
-WARN += -Wno-unknown-pragmas
+WARN += -Wno-unknown-pragmas -Wno-deprecated-declarations
+LDLIBS += -framework GLUT -framework OpenGL
 else
 GRAPH_SRC := graphics/graphics.c
 OPENMP_FLAGS := -fopenmp
