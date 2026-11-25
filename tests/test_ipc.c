@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <sys/wait.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "common.h"
@@ -14,6 +15,15 @@ static int failures;
 #define CHECK(cond) do { \
     if (!(cond)) { fprintf(stderr, "%s:%d: CHECK failed: %s\n", __FILE__, __LINE__, #cond); failures++; } \
 } while (0)
+
+static void sleep_us(long microseconds)
+{
+    struct timespec delay = {
+        .tv_sec = microseconds / 1000000L,
+        .tv_nsec = (microseconds % 1000000L) * 1000L
+    };
+    nanosleep(&delay, NULL);
+}
 
 /* Writer sends one message a few bytes at a time; reader must get it whole. */
 static void test_split_message(void)
@@ -32,7 +42,7 @@ static void test_split_message(void)
             size_t n = sizeof in - i < 5 ? sizeof in - i : 5;
             if (write(p[1], b + i, n) < 0)
                 _exit(1);
-            usleep(200);
+            sleep_us(200);
         }
         _exit(0);
     }
@@ -78,9 +88,9 @@ static void test_eintr(void)
     pid_t pid = fork();
     if (pid == 0) {
         close(p[0]);
-        usleep(150000);
+        sleep_us(150000);
         kill(getppid(), SIGALRM);
-        usleep(150000);
+        sleep_us(150000);
         write_full(p[1], &in, sizeof in);
         _exit(0);
     }
