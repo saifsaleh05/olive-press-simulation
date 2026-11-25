@@ -11,6 +11,22 @@
 #include "common.h"
 #include "config.h"
 
+/* ---------------- Washing (owner: Yanal) -------------------------- */
+/* Pure batch transformation used by the process and unit tests.
+ * loss_u is clamped to 0..1 and selects a configured washing-loss value. */
+double washing_apply_loss(Batch *batch, const Config *cfg, double loss_u);
+
+/* in_fd:    Batch from Cleaning
+ * out_fd:   washed Batch to Crushing
+ * telem_fd: MachineEvent to Quality Control (-1 to disable) */
+int washing_process(const Config *cfg, int in_fd, int out_fd, int telem_fd);
+
+/* ---------------- Crushing (owner: Yanal) ------------------------- */
+/* Crushing conserves mass; stage=M_CRUSHING identifies the Batch payload as
+ * paste when it is forwarded to Malaxation. Processing duration is computed
+ * by the shared load model. */
+int crushing_process(const Config *cfg, int in_fd, int out_fd, int telem_fd);
+
 /* ---------------- Malaxation (owner: Ibrahim) ---------------------- */
 /* in_fd:    Batch from Crushing
  * out_fd:   Batch to Separation

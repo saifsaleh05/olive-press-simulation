@@ -74,9 +74,10 @@ typedef struct {
 /* Fill every field with the team's default values. */
 void config_defaults(Config *cfg);
 
-/* Read KEY=VALUE lines from path on top of the current values.
- * Returns 0 on success, -1 if the file cannot be opened. Unknown keys and
- * bad values are reported on stderr and ignored. */
+/* Read KEY=VALUE lines from path on top of the current values. The update is
+ * transactional: unknown keys, malformed/non-finite values, invalid ranges,
+ * and impossible/negative quantities reject the whole file and leave cfg
+ * unchanged. Returns 0 on success, -1 on any error. */
 int  config_load(Config *cfg, const char *path);
 
 /* Check ranges and impossible values. Returns 0 if valid, otherwise -1 and
