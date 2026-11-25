@@ -1,57 +1,87 @@
-# Olive Press Simulation - Makefile
-#   make            build everything that exists (olive_press once main.c is in)
-#   make tests      build the module tests
-#   make test       build and run the module tests
-#   make clean
+# Olive press simulation - integrated team build
+CC ?= cc
+UNAME_S := $(shell uname -s)
 
-CC       ?= gcc
-CPPFLAGS += -Iinclude
-CFLAGS   ?= -Wall -Wextra -g -O2
-CFLAGS   += -fopenmp
-LDLIBS   += -lm
-GL_LIBS  ?= -lGL -lGLU -lglut
+CSTD := -std=gnu11
+WARN := -Wall -Wextra -Wshadow -Wformat=2 -Wpedantic
+OPT ?= -O2
+CPPFLAGS := -D_POSIX_C_SOURCE=200809L -Iinclude -Iprocesses -Igraphics -MMD -MP
+CFLAGS ?= $(OPT) -g
+ALL_CFLAGS = $(CSTD) $(WARN) $(CPPFLAGS) $(CFLAGS)
+LDLIBS := -lm
 
-COMMON_SRC  := $(wildcard common/*.c)
+# Linux is the assignment target and builds the real OpenGL GUI and OpenMP
+# benchmark. macOS development builds use a GUI stub because FreeGLUT and GCC
+# OpenMP are not system components there; all headless logic and tests still run.
+ifeq ($(UNAME_S),Darwin)
+GRAPH_SRC := graphics/graphics_stub.c
+OPENMP_FLAGS :=
+BENCH_TARGET :=
+WARN += -Wno-unknown-pragmas
+else
+GRAPH_SRC := graphics/graphics.c
+OPENMP_FLAGS := -fopenmp
+BENCH_TARGET := omp_bench
+LDLIBS += -lglut -lGLU -lGL
+endif
+
+BUILD := build
+BIN := olive_press
+
+COMMON_SRC := $(wildcard common/*.c)
 PROCESS_SRC := $(wildcard processes/*.c)
-GRAPH_SRC   := $(wildcard graphics/*.c)
-HEADERS     := $(wildcard include/*.h)
+APP_SRC := src/main.c $(COMMON_SRC) $(PROCESS_SRC) $(GRAPH_SRC)
+APP_OBJ := $(APP_SRC:%.c=$(BUILD)/%.o)
+HEADERS := $(wildcard include/*.h processes/*.h graphics/*.h)
 
-obj = $(patsubst %.c,build/%.o,$(1))
+TEST_NAMES := test_ipc test_reception_cleaning test_config_simulation \
+	test_wash_crush test_malax_sep test_quality_control test_separation_mass
+TEST_BINS := $(addprefix $(BUILD)/,$(TEST_NAMES))
+TEST_DEPS := $(COMMON_SRC) $(PROCESS_SRC)
 
-# objects the module tests link against (no OpenGL needed)
-TEST_DEPS := $(call obj,$(COMMON_SRC) processes/malaxation.c \
-                        processes/separation.c processes/quality_control.c \
-                        processes/washing.c processes/crushing.c)
+.PHONY: all run headless bench tests test debug clean
 
-TESTS := build/test_separation_mass build/test_quality_control \
-         build/test_malax_sep build/test_config_simulation \
-         build/test_wash_crush
+all: $(BIN) $(BENCH_TARGET)
 
-ALL := $(if $(wildcard main.c),olive_press) $(TESTS)
+$(BIN): $(APP_OBJ)
+	$(CC) $(ALL_CFLAGS) $(OPENMP_FLAGS) -o $@ $^ $(LDLIBS) $(OPENMP_FLAGS)
 
-all: $(ALL)
-
-olive_press: $(call obj,main.c $(COMMON_SRC) $(PROCESS_SRC) $(GRAPH_SRC))
-	$(CC) $(CFLAGS) -o $@ $^ $(LDLIBS) $(GL_LIBS)
-
-tests: $(TESTS)
-
-build/test_%: tests/test_%.c $(TEST_DEPS)
+$(BUILD)/%.o: %.c $(HEADERS)
 	@mkdir -p $(dir $@)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -o $@ $^ $(LDLIBS)
+	$(CC) $(ALL_CFLAGS) $(OPENMP_FLAGS) -c -o $@ $<
 
-build/%.o: %.c $(HEADERS)
+$(BUILD)/test_%: tests/test_%.c $(TEST_DEPS) $(HEADERS)
 	@mkdir -p $(dir $@)
-	$(CC) $(CPPFLAGS) $(CFLAGS) -c -o $@ $<
+	$(CC) $(ALL_CFLAGS) $(OPENMP_FLAGS) -o $@ $< $(TEST_DEPS) -lm $(OPENMP_FLAGS)
 
-test: tests
-	./build/test_separation_mass config.txt
-	./build/test_quality_control config.txt
-	./build/test_malax_sep config.txt
-	./build/test_config_simulation config.txt
-	./build/test_wash_crush config.txt
+omp_bench: benchmark/openmp_benchmark.c
+	$(CC) $(ALL_CFLAGS) -fopenmp -o $@ $< -lm -fopenmp
+
+run: $(BIN)
+	./$(BIN) config/default.cfg
+
+headless: $(BIN)
+	./$(BIN) config/default.cfg --headless </dev/null
+
+bench:
+ifeq ($(strip $(OPENMP_FLAGS)),)
+	@echo "OpenMP benchmark requires GCC/OpenMP; run it on the target Linux system"
+else
+	$(MAKE) omp_bench
+	./omp_bench
+endif
+
+tests: $(TEST_BINS)
+
+test: $(BIN) tests
+	@for test_bin in $(TEST_BINS); do $$test_bin || exit 1; done
+	@sh tests/run_headless.sh ./$(BIN)
+
+debug:
+	$(MAKE) clean
+	$(MAKE) OPT=-O0
 
 clean:
-	rm -rf build olive_press
+	$(RM) -r $(BUILD) $(BIN) omp_bench
 
-.PHONY: all tests test clean
+-include $(APP_OBJ:.o=.d)

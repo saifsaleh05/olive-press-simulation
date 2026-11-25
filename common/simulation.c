@@ -356,3 +356,62 @@ unsigned int machine_run_stage(Machine *m, int in_fd,
     machine_emit(m, EV_SHUTDOWN);
     return m->batches_done;
 }
+
+int machine_run_source_batch(Machine *m, Batch *b,
+                             stage_tick_fn tick, stage_done_fn done,
+                             void *ctx)
+{
+    int tick_ms = m->cfg->tick_ms;
+    double last = now_seconds();
+
+    start_batch(m, b);
+    m->state = ST_OPERATING;
+    machine_emit(m, EV_BATCH_START);
+
+    while (!g_stop) {
+        double t = now_seconds(), dt = t - last;
+        MachineState next_state;
+        int changed;
+
+        last = t;
+        apply_injections(m);
+        if (g_error)
+            next_state = ST_ERROR;
+        else if (g_paused)
+            next_state = ST_PAUSED;
+        else
+            next_state = ST_OPERATING;
+        changed = next_state != m->state;
+        m->state = next_state;
+
+        machine_physics_step(m, dt);
+        if (m->state == ST_OPERATING) {
+            m->active_time += dt;
+            m->batch_time += dt;
+            m->progress = m->batch_time / m->needed_time;
+            if (m->progress > 1.0)
+                m->progress = 1.0;
+            if (tick)
+                tick(m, b, dt, ctx);
+            if (m->fail_at >= 0.0 && m->progress >= m->fail_at) {
+                m->fail_at = -1.0;
+                g_error = 1;
+            }
+        }
+        machine_emit(m, changed ? EV_STATE_CHANGE : EV_HEARTBEAT);
+
+        if (m->progress >= 1.0 && m->state == ST_OPERATING) {
+            b->stage = m->id;
+            if (done && done(m, b, ctx) != 0)
+                return -1;
+            m->batches_done++;
+            machine_emit(m, EV_BATCH_DONE);
+            end_batch(m);
+            m->state = ST_IDLE;
+            machine_emit(m, EV_STATE_CHANGE);
+            return 0;
+        }
+        sleep_ms(tick_ms);
+    }
+    return -1;
+}

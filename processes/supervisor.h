@@ -50,7 +50,7 @@ typedef struct {
 
     int    alarms;
     int    faulted_mask;    /* bit i set while machine i is held in ERROR */
-    int    qc_dropped;      /* telemetry copies QC could not keep up with */
+    int    child_failures;   /* abnormal child exits observed by Supervisor */
 
     char   log[LOG_LINES][LOG_WIDTH];
     int    log_total;       /* lines ever written, newest is (total-1) % LOG_LINES */

@@ -28,6 +28,8 @@
 #include <stdio.h>
 #include <string.h>
 
+enum { SEPARATION_WATER_STREAM = 0x57415452u }; /* "WATR" */
+
 static double clamp01(double x)
 {
     return x < 0.0 ? 0.0 : (x > 1.0 ? 1.0 : x);
@@ -71,7 +73,13 @@ static int sep_done(Machine *m, Batch *b, void *ctx)
     SepCtx *c = ctx;
     ProductionResult r;
 
-    separation_compute(b, m->cfg, machine_random(m), &r);
+    /* Production must depend on seed + batch id, not on how many telemetry
+     * samples the scheduler happened to emit before this batch completed. */
+    separation_compute(b, m->cfg,
+                       simulation_random_unit(m->cfg->seed,
+                                              SEPARATION_WATER_STREAM,
+                                              (unsigned int)b->id),
+                       &r);
     c->oil    += r.oil;
     c->water  += r.water;
     c->pomace += r.pomace;

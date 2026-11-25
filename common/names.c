@@ -21,7 +21,8 @@ const char *state_name(int s)
 const char *fault_name(int f)
 {
     static const char *names[NUM_FAULTS] = {
-        "none", "overheat", "overpressure", "timeout", "machine-error"
+        "none", "overheat", "overpressure", "timeout", "machine-error",
+        "manual", "child-died"
     };
     return (f >= 0 && f < NUM_FAULTS) ? names[f] : "?";
 }

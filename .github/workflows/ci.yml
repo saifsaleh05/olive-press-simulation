@@ -1,0 +1,18 @@
+name: build-and-test
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Linux dependencies
+        run: sudo apt-get update && sudo apt-get install -y freeglut3-dev
+      - name: Build GUI and OpenMP benchmark
+        run: make all
+      - name: Run unit and end-to-end tests
+        run: make test

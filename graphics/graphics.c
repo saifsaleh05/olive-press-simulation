@@ -206,7 +206,7 @@ static void batch_token(float cx, float cy, float r, int id)
 static void draw_machine(int id)
 {
     const MachineView *m = &snap.m[id];
-    const MachineCfg  *mc = &cfg->m[id];
+    const MachineConfig *mc = &cfg->machine[id];
     float x = box_pos[id][0], y = box_pos[id][1];
     int   st = (m->state >= 0 && m->state < NUM_STATES) ? m->state : ST_IDLE;
     Rgb   fg = text_on(st);
@@ -233,11 +233,11 @@ static void draw_machine(int id)
     else
         text(x + 12, y + 46, GLUT_BITMAP_HELVETICA_12, "not started");
 
-    color(m->temperature > mc->max_temp * 0.92 ? (Rgb){ 0.55f, 0.0f, 0.0f } : fg);
+    color(m->temperature > mc->max_temperature * 0.92 ? (Rgb){ 0.55f, 0.0f, 0.0f } : fg);
     if (st == ST_ERROR || st == ST_COMPLETED)
         color(fg);
     textf(x + 12, y + 72, GLUT_BITMAP_HELVETICA_12, "T  %5.1f \xb0" "C  / %.0f", m->temperature,
-          mc->max_temp);
+          mc->max_temperature);
     color(fg);
     textf(x + 12, y + 92, GLUT_BITMAP_HELVETICA_12, "P  %5.2f bar / %.1f", m->pressure,
           mc->max_pressure);
@@ -405,7 +405,8 @@ static void draw_production(float x, float y, float w, float h)
     double yield = snap.mass_in > 0.0 ? 100.0 * snap.oil / snap.mass_in : 0.0;
 
     panel_box(x, y, w, h, "Production");
-    snprintf(v, sizeof v, "%d / %d", snap.produced, cfg->num_batches);
+    snprintf(v, sizeof v, "%d / %d", snap.produced,
+             snap.m[M_RECEPTION].batches_out);
     row(x + 14, y + 56, "batches done", v);
     snprintf(v, sizeof v, "%.1f kg", snap.mass_in);
     row(x + 14, y + 76, "olives in", v);
@@ -419,14 +420,14 @@ static void draw_production(float x, float y, float w, float h)
     row(x + 14, y + 156, "debris removed", v);
     snprintf(v, sizeof v, "%.2e kg", snap.balance_error);
     row(x + 14, y + 176, "mass balance err", v);
-    snprintf(v, sizeof v, "%d", snap.qc_dropped);
-    row(x + 14, y + 196, "QC samples lost", v);
+    snprintf(v, sizeof v, "%d", snap.child_failures);
+    row(x + 14, y + 196, "child failures", v);
 }
 
 static void draw_details(float x, float y, float w, float h)
 {
     const MachineView *m = &snap.m[selected];
-    const MachineCfg  *mc = &cfg->m[selected];
+    const MachineConfig *mc = &cfg->machine[selected];
     char v[80], title[48];
 
     snprintf(title, sizeof title, "Details: %s", machine_name(selected));
@@ -443,7 +444,8 @@ static void draw_details(float x, float y, float w, float h)
     else
         snprintf(v, sizeof v, "none");
     row(x + 14, y + 96, "batch", v);
-    snprintf(v, sizeof v, "%.2f \xb0" "C   limit %.1f", m->temperature, mc->max_temp);
+    snprintf(v, sizeof v, "%.2f \xb0" "C   limit %.1f", m->temperature,
+             mc->max_temperature);
     row(x + 14, y + 116, "temperature", v);
     snprintf(v, sizeof v, "%.2f bar   limit %.1f", m->pressure, mc->max_pressure);
     row(x + 14, y + 136, "pressure", v);

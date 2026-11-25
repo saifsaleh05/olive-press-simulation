@@ -37,9 +37,19 @@
 
 #define SIG_PAUSE  SIGUSR1
 #define SIG_RESUME SIGUSR2
+
+/* Linux supplies queued real-time signals. The distinct fallback signals
+ * keep development builds portable; the submitted Linux build uses the
+ * real-time branch. */
+#ifdef SIGRTMIN
 #define SIG_FAULT    (SIGRTMIN + 1)
 #define SIG_HEAT     (SIGRTMIN + 2)
 #define SIG_PRESSURE (SIGRTMIN + 3)
+#else
+#define SIG_FAULT    SIGHUP
+#define SIG_HEAT     SIGALRM
+#define SIG_PRESSURE SIGURG
+#endif
 
 /* Write exactly n bytes, retrying on EINTR and short writes.
  * Returns n on success, -1 on error (errno set; EPIPE if the reader is gone). */

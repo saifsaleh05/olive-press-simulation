@@ -1,96 +1,62 @@
 # Olive Press Simulation
 
-ENCS4330 Real-Time Applications & Embedded Systems, Project 1 (Signals, Pipes & FIFOs).
+ENCS4330 Project 1: a Linux multiprocessing olive-oil factory simulation using
+signals, anonymous pipes, OpenGL/FreeGLUT, and OpenMP.
 
-One executable forks seven children (Reception, Cleaning, Washing, Crushing,
-Malaxation, Separation, Quality Control). The parent is the **Supervisor**: it
-owns the OpenGL window, collects telemetry and alarms without blocking, sends
-control signals and keeps production totals.
+The parent is the Supervisor and owns the GUI. It forks seven children:
+Reception, Cleaning, Washing, Crushing, Malaxation, Separation, and Quality
+Control. Five batch pipes form the production line. Six machines send telemetry
+to QC; QC forwards status and alarms to the Supervisor; Separation sends final
+mass-balanced production results to the Supervisor.
 
-![running line](docs/gui-running.png)
-
-## Build
-
-Ubuntu / Debian packages:
+## Linux build
 
 ```sh
 sudo apt install build-essential freeglut3-dev
+make
 ```
 
-```sh
-make            # olive_press + omp_bench
-make debug      # -O0 -g build for gdb
-make clean
-```
+`make` builds the simulator with the OpenGL GUI and the OpenMP benchmark on
+Linux. A macOS development build uses a GUI stub because FreeGLUT and GCC
+OpenMP are not system components there; `--headless` and the complete test
+suite remain available.
 
 ## Run
 
 ```sh
-./olive_press config/default.cfg              # GUI, press S (or click Start)
-./olive_press config/default.cfg --autostart  # GUI, starts right away
-./olive_press config/hot_day.cfg              # malaxer overheats, QC alarms, auto recovery
-./olive_press config/default.cfg --headless   # no window, progress on stdout
+./olive_press config/default.cfg
+./olive_press config/default.cfg --autostart
+./olive_press config/default.cfg --headless
 ```
 
-The config file is plain `key = value`. Any key left out keeps its default, and
-unknown keys are rejected so a typo cannot slip through. See
-`config/default.cfg` for every key.
+Configuration files use `KEY=VALUE`; omitted keys keep validated defaults and
+unknown keys are rejected. `config.txt` documents every supported setting.
 
 ### GUI controls
 
-| key | button       | what happens                                              |
-|-----|--------------|-----------------------------------------------------------|
-| S   | Start        | create the pipes and fork the seven children              |
-| P   | Pause        | `SIGUSR1` to the six machines                             |
-| R   | Resume       | `SIGUSR2` to the six machines                             |
-| F   | Inject fault | `SIGRTMIN` to the selected machine, reception is held     |
-| C   | Clear fault  | `SIGRTMIN+1` to the selected machine, reception released  |
-| X   | Stop         | `SIGTERM` to every child, `SIGKILL` after 2 s if needed   |
-| 1-6 | click a box  | select the machine shown in the details panel             |
-| Q / Esc | -        | stop the line and close the window                        |
+| Key | Action |
+| --- | --- |
+| `S` | Start the production line |
+| `P` | Pause all machines (`SIGUSR1`) |
+| `R` | Resume all machines (`SIGUSR2`) |
+| `F` | Inject a fault into the selected machine |
+| `C` | Clear the selected fault and resume |
+| `X` | Stop and reap every child |
+| `1`-`6` | Select a machine |
+| `Q` / Esc | Stop and close |
 
-Colours: gray IDLE, green OPERATING, yellow PAUSED, red ERROR, blue COMPLETED.
-Olive circles inside a machine are the batch it is working on; circles on an
-arrow are batches written to that pipe and not yet read by the next stage.
+Colors show actual reported state: gray IDLE, green OPERATING, yellow PAUSED,
+red ERROR, and blue COMPLETED.
 
 ### Headless commands
 
-Without a window the supervisor reads simple commands from stdin, which is
-also how the end to end tests drive it:
-
+```text
+p       pause
+r       resume
+f N     fault machine N (1 = Reception, 6 = Separation)
+c N     clear machine N
+x       stop
 ```
-p        pause          r      resume
-f N      fault machine N (1 = reception ... 6 = separation)
-c N      clear fault on machine N
-x        stop
-```
-
-## OpenMP benchmark
-
-```sh
-./omp_bench                    # all cores, 4000 samples x 4000 RK4 steps
-./omp_bench --sweep            # 1, 2, 4 ... threads
-./omp_bench -n 16 -s 20 -r 101 --sweep    # tiny job: overhead wins
-```
-
-Results and what they mean: [docs/benchmark.md](docs/benchmark.md).
-
-## Debugging with gdb
-
-`make debug` rebuilds with `-O0 -g`. By default gdb stays in the parent
-after `fork()`. To step into a child:
-
-```
-gdb --args ./olive_press tests/fast.cfg --headless
-(gdb) set follow-fork-mode child      # follow the next fork into the child
-(gdb) set detach-on-fork off          # keep the other processes under gdb too
-(gdb) break crushing_run
-(gdb) run
-(gdb) info inferiors                  # list parent and children
-```
-
-An already running child can also be attached by its PID from the GUI:
-`gdb -p <pid>`.
 
 ## Tests
 
@@ -98,26 +64,42 @@ An already running child can also be attached by its PID from the GUI:
 make test
 ```
 
-Runs the IPC and config unit tests, then `tests/run_headless.sh`, which drives
-the real binary through a normal run, a repeatability check, an over
-temperature alarm, every operator control, a stop, and a child killed with
-`SIGKILL`. It also checks that no process is left behind afterwards.
+The suite covers IPC short reads/writes and EOF, transactional configuration,
+Reception/Cleaning uniqueness and mass accounting, Washing/Crushing,
+Malaxation/Separation, QC alarm hysteresis, two-million-batch mass balance,
+normal end-to-end production, deterministic output, alarm recovery,
+pause/resume/fault/clear, forced stop, crashed-child cleanup, and invalid input.
+
+## OpenMP
+
+```sh
+make bench
+./omp_bench --sweep
+```
+
+The benchmark compares sequential and parallel processing. See
+`docs/benchmark.md` for the recorded interpretation.
 
 ## Layout
 
-```
-include/       shared contract: common.h, ipc.h, config.h
-common/        read_full/write_full, config loader, name tables
-processes/     supervisor.c, mock_stages.c, (real stages go here)
-graphics/      graphics.c - GLUT window
-benchmark/     openmp_benchmark.c
-src/main.c     argument parsing, headless loop
-config/        default.cfg, hot_day.cfg
-tests/         unit tests, end to end script and short configs
-docs/          protocol notes, benchmark results, demo script
+```text
+include/       shared Batch, telemetry, alarm, configuration and process APIs
+common/        configuration, IPC helpers and shared machine physics
+processes/     six real stages, Quality Control and Supervisor
+graphics/      OpenGL/FreeGLUT GUI plus a macOS headless stub
+benchmark/     OpenMP sequential-versus-parallel benchmark
+src/main.c     CLI, signal setup and headless/GUI dispatch
+config/        demonstration profiles
+tests/         module and end-to-end tests
+docs/          design, demo and benchmark notes
 ```
 
-`processes/mock_stages.c` holds stand-in versions of all seven children. They
-are declared weak, so dropping a real `processes/crushing.c` with
-`crushing_run()` into the tree replaces that one mock on the next `make` with
-no other change.
+## Debugging
+
+```sh
+make debug
+gdb --args ./olive_press tests/fast.cfg --headless
+```
+
+Useful GDB commands after `fork()` are `set follow-fork-mode child`,
+`set detach-on-fork off`, and `info inferiors`.

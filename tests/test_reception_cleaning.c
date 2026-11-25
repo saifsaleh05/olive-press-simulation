@@ -1,8 +1,8 @@
-#include "cleaning.h"
+#define _POSIX_C_SOURCE 200809L
 #include "common.h"
 #include "config.h"
 #include "ipc.h"
-#include "reception.h"
+#include "processes.h"
 
 #include <math.h>
 #include <stdio.h>
@@ -10,134 +10,84 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
-#define MAX_TEST_BATCHES 64
+static int failures;
+#define CHECK(condition) do { if (!(condition)) { \
+    fprintf(stderr, "%s:%d: CHECK failed: %s\n", __FILE__, __LINE__, #condition); \
+    failures++; } } while (0)
 
-static void fail(const char *message)
-{
-    fprintf(stderr, "FAIL: %s\n", message);
-    exit(EXIT_FAILURE);
-}
-
-static void expect_clean_exit(pid_t pid, const char *name)
+static int child_ok(pid_t pid)
 {
     int status;
-    if (waitpid(pid, &status, 0) != pid) {
-        fail("waitpid failed");
-    }
-    if (!WIFEXITED(status) || WEXITSTATUS(status) != 0) {
-        fprintf(stderr, "FAIL: %s did not exit cleanly\n", name);
-        exit(EXIT_FAILURE);
-    }
+    return waitpid(pid, &status, 0) == pid && WIFEXITED(status) &&
+           WEXITSTATUS(status) == 0;
 }
 
 int main(void)
 {
-    Config config;
-    IpcPipe pipes[2];
-    pid_t reception_pid;
-    pid_t cleaning_pid;
-    int seen[MAX_TEST_BATCHES] = {0};
-    int batch_count = 0;
-    double original_total = 0.0;
-    double cleaned_total = 0.0;
+    Config cfg;
+    int first[2], second[2];
+    pid_t reception, cleaning;
+    int seen[128] = {0};
+    int count = 0;
+    double original = 0.0, cleaned = 0.0;
 
-    config_set_defaults(&config);
-    config.total_olive_mass_kg = 425.0;
-    config.batch_mass_min_kg = 60.0;
-    config.batch_mass_max_kg = 90.0;
-    config.reception_interval_ms = 0U;
-    config.cleaning_duration_ms = 0U;
-    config.seed = 12345U;
+    config_defaults(&cfg);
+    cfg.total_olives_kg = 65.0;
+    cfg.batch_size_kg = (Range){10.0, 14.0};
+    cfg.nominal_batch_kg = 10.0;
+    cfg.tick_ms = 1;
+    cfg.machine[M_RECEPTION].base_time = 0.001;
+    cfg.machine[M_CLEANING].base_time = 0.001;
+    cfg.auto_faults_enabled = 0;
+    cfg.seed = 4330;
 
-    if (ipc_create_pipes(pipes, 2) == -1) {
-        fail("could not create test pipes");
+    CHECK(pipe(first) == 0);
+    CHECK(pipe(second) == 0);
+    reception = fork();
+    CHECK(reception >= 0);
+    if (reception == 0) {
+        close(first[0]); close(second[0]); close(second[1]);
+        _exit(reception_process(&cfg, first[1], -1));
+    }
+    cleaning = fork();
+    CHECK(cleaning >= 0);
+    if (cleaning == 0) {
+        close(first[1]); close(second[0]);
+        _exit(cleaning_process(&cfg, first[0], second[1], -1));
     }
 
-    reception_pid = fork();
-    if (reception_pid == -1) {
-        fail("could not fork Reception");
-    }
-    if (reception_pid == 0) {
-        int keep = pipes[0].write_fd;
-        int result;
-        ipc_close_all_except(pipes, 2, &keep, 1);
-        result = run_reception(&config, keep);
-        ipc_close_all(pipes, 2);
-        _exit(result == 0 ? EXIT_SUCCESS : EXIT_FAILURE);
-    }
-
-    cleaning_pid = fork();
-    if (cleaning_pid == -1) {
-        fail("could not fork Cleaning");
-    }
-    if (cleaning_pid == 0) {
-        int keep[2] = {pipes[0].read_fd, pipes[1].write_fd};
-        int result;
-        ipc_close_all_except(pipes, 2, keep, 2);
-        result = run_cleaning(&config, keep[0], keep[1]);
-        ipc_close_all(pipes, 2);
-        _exit(result == 0 ? EXIT_SUCCESS : EXIT_FAILURE);
-    }
-
-    ipc_close_fd(&pipes[0].read_fd);
-    ipc_close_fd(&pipes[0].write_fd);
-    ipc_close_fd(&pipes[1].write_fd);
-
+    close(first[0]); close(first[1]); close(second[1]);
     for (;;) {
         Batch batch;
-        ssize_t received = read_full(pipes[1].read_fd, &batch, sizeof(batch));
-        double reconstructed_mass;
-
-        if (received == 0) {
+        ssize_t bytes = read_full(second[0], &batch, sizeof batch);
+        if (bytes == 0)
             break;
-        }
-        if (received == -1) {
-            fail("mock Washing could not read a complete batch");
-        }
-        if (batch.id <= 0 || batch.id >= MAX_TEST_BATCHES) {
-            fail("batch ID is outside the test range");
-        }
-        if (seen[batch.id]) {
-            fail("duplicate batch ID received");
-        }
-        seen[batch.id] = 1;
-        ++batch_count;
-
-        if (batch.stage != STAGE_CLEANING) {
-            fail("batch was not marked as cleaned");
-        }
-        if (batch.removed_impurity_kg <= 0.0) {
-            fail("Cleaning removed no impurity");
-        }
-        if (batch.current_mass_kg >= batch.original_mass_kg) {
-            fail("cleaned mass did not decrease");
-        }
-        reconstructed_mass = batch.olive_mass_kg + batch.impurity_mass_kg;
-        if (fabs(reconstructed_mass - batch.current_mass_kg) > 0.000001) {
-            fail("mass accounting invariant failed");
-        }
-        original_total += batch.original_mass_kg;
-        cleaned_total += batch.current_mass_kg;
-        printf("[Mock Washing] Batch %d received once: %.2f kg\n",
-               batch.id, batch.current_mass_kg);
+        CHECK(bytes == (ssize_t)sizeof batch);
+        if (bytes != (ssize_t)sizeof batch)
+            break;
+        CHECK(batch.id > 0 && batch.id < 128);
+        CHECK(!seen[batch.id]);
+        if (batch.id > 0 && batch.id < 128)
+            seen[batch.id] = 1;
+        CHECK(batch.stage == M_CLEANING);
+        CHECK(batch.current_mass < batch.original_mass);
+        CHECK(batch.impurity_fraction >= 0.0 && batch.impurity_fraction <= 1.0);
+        original += batch.original_mass;
+        cleaned += batch.current_mass;
+        count++;
     }
+    close(second[0]);
+    CHECK(child_ok(reception));
+    CHECK(child_ok(cleaning));
+    CHECK(count >= 2);
+    CHECK(fabs(original - cfg.total_olives_kg) < 1e-9);
+    CHECK(cleaned < original);
 
-    ipc_close_fd(&pipes[1].read_fd);
-    expect_clean_exit(reception_pid, "Reception");
-    expect_clean_exit(cleaning_pid, "Cleaning");
-
-    if (batch_count < 2) {
-        fail("test did not transfer multiple batches");
+    if (failures) {
+        fprintf(stderr, "test_reception_cleaning: %d failure(s)\n", failures);
+        return 1;
     }
-    if (fabs(original_total - config.total_olive_mass_kg) > 0.000001) {
-        fail("batches did not cover the configured container mass");
-    }
-    if (cleaned_total >= original_total) {
-        fail("total cleaning output should be lighter than input");
-    }
-
-    printf("PASS: %d unique batches, no loss/duplicates, EOF propagated; "
-           "%.2f kg -> %.2f kg\n",
-           batch_count, original_total, cleaned_total);
-    return EXIT_SUCCESS;
+    printf("test_reception_cleaning: ok (%d unique batches, %.2f -> %.2f kg)\n",
+           count, original, cleaned);
+    return 0;
 }

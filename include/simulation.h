@@ -94,6 +94,11 @@ unsigned int machine_run_stage(Machine *m, int in_fd,
                                stage_tick_fn tick, stage_done_fn done,
                                void *ctx);
 
+/* Process one locally generated batch (Reception has no input pipe). */
+int machine_run_source_batch(Machine *m, Batch *b,
+                             stage_tick_fn tick, stage_done_fn done,
+                             void *ctx);
+
 /* Monotonic time in seconds. */
 double now_seconds(void);
 

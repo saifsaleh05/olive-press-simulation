@@ -23,7 +23,7 @@ echo "end to end:"
 
 # 1. full run, every batch out, mass conserved
 if "$BIN" tests/fast.cfg --headless </dev/null >"$TMP/a.log" 2>&1 &&
-   grep -q "summary: 6/6 batches" "$TMP/a.log"; then
+   grep -q "summary: \([1-9][0-9]*\)/\1 batches" "$TMP/a.log"; then
     pass "normal run completes all batches"
 else
     fail "normal run completes all batches"
@@ -43,26 +43,26 @@ fi
 
 # 3. QC alarm, automatic fault response and recovery
 if "$BIN" tests/fast_hot.cfg --headless </dev/null >"$TMP/hot.log" 2>&1 &&
-   grep -q "QC ALARM Malaxation" "$TMP/hot.log" &&
-   grep -q "Malaxation fault cleared" "$TMP/hot.log"; then
+   grep -qi "QC ALARM malaxation" "$TMP/hot.log" &&
+   grep -qi "malaxation fault cleared" "$TMP/hot.log"; then
     pass "over temperature alarm is raised and recovered"
 else
     fail "over temperature alarm is raised and recovered"
 fi
 
 # 4. operator controls while running
-( sleep 0.4; echo p; sleep 0.5; echo r; sleep 0.3; echo f 4; sleep 0.5; echo c 4 ) |
+( sleep 0.05; echo p; sleep 0.05; echo r; sleep 0.05; echo f 4; sleep 0.08; echo c 4 ) |
     "$BIN" tests/fast.cfg --headless >"$TMP/ctl.log" 2>&1
 if grep -q "operator: pause" "$TMP/ctl.log" && grep -q "operator: resume" "$TMP/ctl.log" &&
-   grep -q "Crushing: OPERATING -> ERROR\|Crushing: IDLE -> ERROR" "$TMP/ctl.log" &&
-   grep -q "summary: 6/6 batches" "$TMP/ctl.log"; then
+   grep -qi "crushing: .* -> ERROR" "$TMP/ctl.log" &&
+   grep -q "summary: \([1-9][0-9]*\)/\1 batches" "$TMP/ctl.log"; then
     pass "pause / resume / fault / clear, line still finishes"
 else
     fail "pause / resume / fault / clear, line still finishes"
 fi
 
 # 5. operator stop
-( sleep 0.5; echo x ) | "$BIN" tests/fast.cfg --headless >"$TMP/stop.log" 2>&1
+( sleep 0.08; echo x ) | "$BIN" tests/fast.cfg --headless >"$TMP/stop.log" 2>&1
 if grep -q "line finished" "$TMP/stop.log" && ! leftovers; then
     pass "stop shuts every child down"
 else
@@ -71,7 +71,7 @@ fi
 
 # 6. a child dies under us
 "$BIN" tests/fast.cfg --headless </dev/null >"$TMP/kill.log" 2>&1 &
-sleep 0.5
+sleep 0.08
 victim=$(pgrep -P $! | sed -n 4p)
 [ -n "$victim" ] && kill -9 "$victim"
 wait $! 2>/dev/null

@@ -34,8 +34,14 @@ typedef enum {
     ST_OPERATING,
     ST_PAUSED,
     ST_ERROR,
-    ST_COMPLETED
+    ST_COMPLETED,
+    NUM_STATES
 } MachineState;
+
+/* Seven children are forked: six machines plus the Quality Control process. */
+#define M_QC NUM_MACHINES
+#define NUM_PROCS (NUM_MACHINES + 1)
+#define NUM_BATCH_PIPES (NUM_MACHINES - 1)
 
 /* ------------------------------------------------------------------ */
 /* Batch: travels through the five stage-to-stage pipes               */
@@ -88,6 +94,8 @@ typedef enum {
     FAULT_OVERPRESSURE,    /* pressure    > max_pressure                   */
     FAULT_TIMEOUT,         /* batch_time  > max_batch_time (slow machine)  */
     FAULT_MACHINE_ERROR,   /* machine reports ST_ERROR (failure)           */
+    FAULT_MANUAL,          /* operator injected failure                    */
+    FAULT_CHILD_DIED,      /* Supervisor observed an abnormal child exit   */
     NUM_FAULTS
 } FaultCode;
 

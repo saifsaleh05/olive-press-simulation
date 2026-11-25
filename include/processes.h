@@ -11,6 +11,11 @@
 #include "common.h"
 #include "config.h"
 
+/* ---------------- Reception and Cleaning (owner: Saif) ----------- */
+int reception_process(const Config *cfg, int out_fd, int telem_fd);
+double cleaning_apply_loss(Batch *batch, const Config *cfg, double loss_u);
+int cleaning_process(const Config *cfg, int in_fd, int out_fd, int telem_fd);
+
 /* ---------------- Washing (owner: Yanal) -------------------------- */
 /* Pure batch transformation used by the process and unit tests.
  * loss_u is clamped to 0..1 and selects a configured washing-loss value. */

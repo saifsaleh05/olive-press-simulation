@@ -91,7 +91,7 @@ static int run_headless(const Config *cfg)
             }
         }
 
-        supervisor_poll((int)(cfg->tick * 1000));
+        supervisor_poll(cfg->tick_ms);
 
         supervisor_snapshot(&s);
         if (s.uptime >= next_status) {
@@ -105,10 +105,12 @@ static int run_headless(const Config *cfg)
 
     printf("\nsummary: %d/%d batches, olives %.1f kg, oil %.1f kg, water %.1f kg, "
            "pomace %.1f kg, debris %.1f kg, alarms %d, balance error %.2e kg\n",
-           s.produced, cfg->num_batches, s.mass_in, s.oil, s.water, s.pomace, s.losses,
+           s.produced, s.m[M_RECEPTION].batches_out, s.mass_in, s.oil,
+           s.water, s.pomace, s.losses,
            s.alarms, s.balance_error);
 
-    return s.produced == cfg->num_batches && s.balance_error < 1e-6 ? 0 : 2;
+    return s.produced > 0 && s.produced == s.m[M_RECEPTION].batches_out &&
+           s.child_failures == 0 && s.balance_error < 1e-6 ? 0 : 2;
 }
 
 int main(int argc, char **argv)
@@ -116,7 +118,6 @@ int main(int argc, char **argv)
     Config      cfg;
     const char *cfg_path = NULL;
     int         headless = 0, autostart = 0, rc;
-    char        err[256];
 
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--headless"))
@@ -136,8 +137,8 @@ int main(int argc, char **argv)
     }
 
     config_defaults(&cfg);
-    if (cfg_path && config_load(cfg_path, &cfg, err, sizeof err) < 0) {
-        fprintf(stderr, "config: %s\n", err);
+    if (cfg_path && config_load(&cfg, cfg_path) < 0) {
+        fprintf(stderr, "config: could not load %s\n", cfg_path);
         return 1;
     }
 

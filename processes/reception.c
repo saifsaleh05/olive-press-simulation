@@ -1,86 +1,93 @@
-#include "reception.h"
-
-#include "common.h"
+/* Reception: split the configured container mass into deterministic batches. */
+#define _POSIX_C_SOURCE 200809L
+#include "processes.h"
+#include "simulation.h"
 #include "ipc.h"
-#include "timing.h"
 
-#include <limits.h>
 #include <stdio.h>
-#include <unistd.h>
 
-static unsigned int next_random(unsigned int *state)
+enum {
+    RECEPTION_MASS_STREAM = 0x4D415353u,
+    RECEPTION_IMPURITY_STREAM = 0x494D5055u,
+    RECEPTION_OIL_STREAM = 0x4F494C50u,
+    RECEPTION_QUALITY_STREAM = 0x5155414Cu
+};
+
+typedef struct { int out_fd; } ReceptionCtx;
+
+static double in_range(Range range, double unit)
 {
-    unsigned int value = *state;
-    if (value == 0U) {
-        value = 0x6d2b79f5U;
-    }
-    value ^= value << 13;
-    value ^= value >> 17;
-    value ^= value << 5;
-    *state = value;
-    return value;
+    return range.min + unit * (range.max - range.min);
 }
 
-static double sample_range(unsigned int *state, double minimum, double maximum)
+static int reception_done(Machine *machine, Batch *batch, void *ctx)
 {
-    double unit = (double)next_random(state) / (double)UINT_MAX;
-    return minimum + ((maximum - minimum) * unit);
-}
+    ReceptionCtx *reception = ctx;
 
-int run_reception(const Config *config, int output_fd)
-{
-    unsigned int random_state = config->seed;
-    double remaining = config->total_olive_mass_kg;
-    int next_batch_id = 1;
-
-    fprintf(stdout, "[Reception pid=%ld] Conveyor started; container has %.2f kg\n",
-            (long)getpid(), remaining);
-
-    while (remaining > 0.000001) {
-        Batch batch;
-        double requested_mass = sample_range(&random_state,
-                                             config->batch_mass_min_kg,
-                                             config->batch_mass_max_kg);
-        double impurity_fraction;
-
-        if (requested_mass > remaining) {
-            requested_mass = remaining;
-        }
-        impurity_fraction = sample_range(&random_state,
-                                         config->impurity_fraction_min,
-                                         config->impurity_fraction_max);
-
-        batch.id = next_batch_id++;
-        batch.original_mass_kg = requested_mass;
-        batch.current_mass_kg = requested_mass;
-        batch.impurity_mass_kg = requested_mass * impurity_fraction;
-        batch.olive_mass_kg = requested_mass - batch.impurity_mass_kg;
-        batch.removed_impurity_kg = 0.0;
-        batch.oil_potential_fraction = sample_range(&random_state,
-                                                    config->oil_potential_min,
-                                                    config->oil_potential_max);
-        batch.quality = 1.0 - impurity_fraction;
-        batch.stage = STAGE_RECEPTION;
-
-        if (sleep_milliseconds(config->reception_interval_ms) == -1) {
-            perror("Reception: processing delay");
-            return 1;
-        }
-        if (write_full(output_fd, &batch, sizeof(batch)) == -1) {
-            perror("Reception: write batch");
-            return 1;
-        }
-
-        remaining -= requested_mass;
-        if (remaining < 0.000001) {
-            remaining = 0.0;
-        }
-        fprintf(stdout,
-                "[Reception] Batch %d: %.2f kg (%.2f kg impurity); container %.2f kg\n",
-                batch.id, batch.current_mass_kg, batch.impurity_mass_kg,
-                remaining);
+    if (write_full(reception->out_fd, batch, sizeof *batch) < 0) {
+        perror("reception: write to cleaning");
+        return -1;
     }
-
-    fprintf(stdout, "[Reception] Container empty; conveyor stopped; closing output\n");
+    printf("%s[reception] batch %d: %.2f kg, impurity %.2f%% -> cleaning\n",
+           log_stamp(), batch->id, batch->current_mass,
+           batch->impurity_fraction * 100.0);
+    (void)machine;
     return 0;
+}
+
+int reception_process(const Config *cfg, int out_fd, int telem_fd)
+{
+    Machine machine;
+    ReceptionCtx ctx = { .out_fd = out_fd };
+    double remaining = cfg->total_olives_kg;
+    int id = 1;
+    int failed = 0;
+
+    setvbuf(stdout, NULL, _IOLBF, 0);
+    machine_install_signals();
+    machine_init(&machine, M_RECEPTION, cfg, telem_fd);
+    machine_emit(&machine, EV_STATE_CHANGE);
+    printf("%s[reception] conveyor started: %.2f kg available\n",
+           log_stamp(), remaining);
+
+    while (remaining > 1e-9 && !machine_stop_requested()) {
+        Batch batch;
+        unsigned int sample = (unsigned int)id;
+        double mass = in_range(cfg->batch_size_kg,
+            simulation_random_unit(cfg->seed, RECEPTION_MASS_STREAM, sample));
+
+        if (mass > remaining)
+            mass = remaining;
+        batch.id = id;
+        batch.original_mass = mass;
+        batch.current_mass = mass;
+        batch.impurity_fraction = in_range(cfg->impurity,
+            simulation_random_unit(cfg->seed, RECEPTION_IMPURITY_STREAM, sample));
+        batch.oil_potential = in_range(cfg->oil_potential,
+            simulation_random_unit(cfg->seed, RECEPTION_OIL_STREAM, sample));
+        batch.quality = in_range(cfg->quality,
+            simulation_random_unit(cfg->seed, RECEPTION_QUALITY_STREAM, sample));
+        batch.stage = M_RECEPTION;
+
+        if (machine_run_source_batch(&machine, &batch, NULL,
+                                     reception_done, &ctx) < 0) {
+            failed = 1;
+            break;
+        }
+        remaining -= mass;
+        if (remaining < 1e-9)
+            remaining = 0.0;
+        id++;
+    }
+
+    machine.state = (!failed && remaining <= 1e-9) ? ST_COMPLETED : ST_IDLE;
+    machine.batch_id = -1;
+    machine.progress = 0.0;
+    machine_emit(&machine, EV_STATE_CHANGE);
+    machine_emit(&machine, EV_SHUTDOWN);
+    printf("%s[reception] conveyor stopped: %u batches, %.2f kg remaining\n",
+           log_stamp(), machine.batches_done, remaining);
+    close_fd(&out_fd);
+    close_fd(&machine.telem_fd);
+    return failed ? 1 : 0;
 }

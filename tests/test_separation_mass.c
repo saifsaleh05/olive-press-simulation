@@ -15,7 +15,18 @@
 #include "processes.h"
 
 #include <math.h>
+#ifdef _OPENMP
 #include <omp.h>
+#else
+#include <time.h>
+static double omp_get_wtime(void)
+{
+    struct timespec now;
+    clock_gettime(CLOCK_MONOTONIC, &now);
+    return (double)now.tv_sec + (double)now.tv_nsec / 1e9;
+}
+static int omp_get_max_threads(void) { return 1; }
+#endif
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -224,6 +235,8 @@ int main(int argc, char **argv)
           "OpenMP results differ from sequential");
     CHECK(err_par == err_seq && neg_par == neg_seq,
           "OpenMP reductions differ");
+    CHECK(fabs(oil_par - oil_seq) < 1e-6,
+          "OpenMP oil total differs from sequential");
 
     printf("OpenMP benchmark (%d threads)\n", omp_get_max_threads());
     printf("  sequential: %.4f s\n  parallel:   %.4f s\n  speed-up:   %.2fx "

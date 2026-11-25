@@ -1,3 +1,8 @@
 build/
 olive_press
+omp_bench
+test_ipc
+test_reception_cleaning
 *.o
+*.d
+*.dSYM/
